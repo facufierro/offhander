@@ -8,7 +8,7 @@ import net.neoforged.neoforge.common.NeoForge;
 import smartin.offhander.OffHanderClient;
 import smartin.offhander.Offhander;
 
-@EventBusSubscriber(bus = EventBusSubscriber.Bus.MOD,value = Dist.CLIENT,modid = Offhander.MOD_ID)
+@EventBusSubscriber(value = Dist.CLIENT, modid = Offhander.MOD_ID)
 public class OffhanderForgeClient {
     public static void setup() {
         //NeoForge.EVENT_BUS.addListener(OffhanderForgeClient::registerBindings);

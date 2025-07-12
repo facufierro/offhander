@@ -2,6 +2,7 @@ package smartin.offhander.mixin;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.MultiPlayerGameMode;
+import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.player.Player;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -28,4 +29,5 @@ public class MinecraftMixin {
             instance.releaseUsingItem(player);
         }
     }
+
 }

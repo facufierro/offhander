@@ -11,6 +11,7 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.EntityHitResult;
+import net.minecraft.world.phys.HitResult;
 import smartin.offhander.mixin.MinecraftAccessor;
 
 import java.util.HashMap;
@@ -29,7 +30,6 @@ public class OffHanderClient {
     public static boolean wasUseKeyLastDown = false;
 
     public static void clientTick(Minecraft client) {
-        LOGGER.info("client tick");
         LocalPlayer player = client.player;
         if (player != null) {
             if (player.isUsingItem()) {
@@ -51,14 +51,14 @@ public class OffHanderClient {
                 }
             }else{
                 while (OFF_HAND.consumeClick()) {
-                    startUseItem(client, InteractionHand.OFF_HAND);
+                    startUseItemWithFallback(client, InteractionHand.OFF_HAND);
                 }
                 while (MAIN_HAND.consumeClick()) {
                     startUseItem(client, InteractionHand.MAIN_HAND);
                 }
             }
             if (OFF_HAND.isDown() && ((MinecraftAccessor) client).getRightClickDelay() == 0 && !player.isUsingItem()) {
-                startUseItem(client, InteractionHand.OFF_HAND);
+                startUseItemWithFallback(client, InteractionHand.OFF_HAND);
             }
             if (MAIN_HAND.isDown() && ((MinecraftAccessor) client).getRightClickDelay() == 0 && !player.isUsingItem()) {
                 startUseItem(client, InteractionHand.MAIN_HAND);
@@ -141,6 +141,70 @@ public class OffHanderClient {
                         return;
                     }
 
+                }
+            }
+        }
+    }
+
+    // Enhanced off-hand method that tries main hand first (for placement), then off-hand
+    private static void startUseItemWithFallback(Minecraft minecraft, InteractionHand primaryHand) {
+        LOGGER.info("use item with fallback - trying main hand first for placement");
+        if (!minecraft.gameMode.isDestroying()) {
+            ((MinecraftAccessor) minecraft).setRightClickDelay(4);
+            if (!minecraft.player.isHandsBusy()) {
+                if (minecraft.hitResult == null) {
+                    LOGGER.warn("Null returned as 'hitResult', this shouldn't happen!");
+                    return;
+                }
+
+                // First, try main hand for placement/interaction (vanilla priority)
+                boolean mainHandWorked = false;
+                ItemStack mainHandItemStack = minecraft.player.getItemInHand(InteractionHand.MAIN_HAND);
+                
+                if (mainHandItemStack.isItemEnabled(minecraft.level.enabledFeatures())) {
+                    if (minecraft.hitResult != null) {
+                        switch (minecraft.hitResult.getType()) {
+                            case ENTITY:
+                                EntityHitResult entityHitResult = (EntityHitResult) minecraft.hitResult;
+                                Entity entity = entityHitResult.getEntity();
+                                if (minecraft.level.getWorldBorder().isWithinBounds(entity.blockPosition())) {
+                                    InteractionResult interactionResult = minecraft.gameMode.interactAt(minecraft.player, entity, entityHitResult, InteractionHand.MAIN_HAND);
+                                    if (!interactionResult.consumesAction()) {
+                                        interactionResult = minecraft.gameMode.interact(minecraft.player, entity, InteractionHand.MAIN_HAND);
+                                    }
+
+                                    if (interactionResult.consumesAction()) {
+                                        if (interactionResult.shouldSwing()) {
+                                            minecraft.player.swing(InteractionHand.MAIN_HAND);
+                                        }
+                                        mainHandWorked = true;
+                                    }
+                                }
+                                break;
+                                
+                            case BLOCK:
+                                BlockHitResult blockHitResult = (BlockHitResult) minecraft.hitResult;
+                                int i = mainHandItemStack.getCount();
+                                InteractionResult interactionResult2 = minecraft.gameMode.useItemOn(minecraft.player, InteractionHand.MAIN_HAND, blockHitResult);
+                                if (interactionResult2.consumesAction()) {
+                                    if (interactionResult2.shouldSwing()) {
+                                        minecraft.player.swing(InteractionHand.MAIN_HAND);
+                                        if (!mainHandItemStack.isEmpty() && (mainHandItemStack.getCount() != i || minecraft.gameMode.hasInfiniteItems())) {
+                                            minecraft.gameRenderer.itemInHandRenderer.itemUsed(InteractionHand.MAIN_HAND);
+                                        }
+                                    }
+                                    mainHandWorked = true;
+                                } else if (interactionResult2 == InteractionResult.FAIL) {
+                                    // Don't try fallback on explicit failure
+                                    return;
+                                }
+                        }
+                    }
+                }
+
+                // If main hand placement/interaction didn't work, try off-hand
+                if (!mainHandWorked) {
+                    startUseItem(minecraft, InteractionHand.OFF_HAND);
                 }
             }
         }

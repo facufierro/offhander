@@ -19,6 +19,14 @@ loom {
      */
 }
 
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(21)
+}
+
+compileJava {
+    options.release = 21
+}
+
 architectury {
     platformSetupLoomIde()
     neoForge()
@@ -37,7 +45,7 @@ dependencies {
     neoForge "net.neoforged:neoforge:${rootProject.neoforge_version}"
 
     common(project(path: ":common", configuration: "namedElements")) { transitive false }
-    shadowCommon(project(path: ":common", configuration: "transformProductionNeoForge")) { transitive = false }
+    shadowCommon(project(path: ":common", configuration: "transformProductionForge")) { transitive = false }
 }
 
 processResources {
