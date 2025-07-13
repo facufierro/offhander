@@ -248,7 +248,6 @@ public class OffHanderClient {
                     
                     // If off-hand item didn't work, try main-hand item
                     if (!offHandItemWorked) {
-                        ItemStack mainHandItemStack = minecraft.player.getItemInHand(InteractionHand.MAIN_HAND);
                         if (!mainHandItemStack.isEmpty()) {
                             InteractionResult result = minecraft.gameMode.useItem(minecraft.player, InteractionHand.MAIN_HAND);
                             if (result.consumesAction()) {
