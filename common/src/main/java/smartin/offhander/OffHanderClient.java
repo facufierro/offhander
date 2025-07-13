@@ -146,9 +146,9 @@ public class OffHanderClient {
         }
     }
 
-    // Enhanced off-hand method: placement → off-hand item → main-hand item (vanilla with swapped hands)
+    // Priority system: try placement first, then delegate to original logic for mod compatibility
     private static void startUseItemWithFallback(Minecraft minecraft, InteractionHand primaryHand) {
-        LOGGER.info("use item with fallback - placement, off-hand, main-hand sequence");
+        LOGGER.info("use item with fallback - placement priority then original logic");
         if (!minecraft.gameMode.isDestroying()) {
             ((MinecraftAccessor) minecraft).setRightClickDelay(4);
             if (!minecraft.player.isHandsBusy()) {
@@ -157,75 +157,104 @@ public class OffHanderClient {
                     return;
                 }
 
-                // Step 1: Try main hand for placement/interaction only (like vanilla)
                 boolean placementWorked = false;
+
+                // Step 1: Try main hand placement/interaction first
                 ItemStack mainHandItemStack = minecraft.player.getItemInHand(InteractionHand.MAIN_HAND);
-                
-                if (mainHandItemStack.isItemEnabled(minecraft.level.enabledFeatures())) {
-                    if (minecraft.hitResult != null) {
+                if (mainHandItemStack.isItemEnabled(minecraft.level.enabledFeatures()) && minecraft.hitResult != null) {
+                    switch (minecraft.hitResult.getType()) {
+                        case ENTITY:
+                            EntityHitResult entityHitResult = (EntityHitResult) minecraft.hitResult;
+                            Entity entity = entityHitResult.getEntity();
+                            if (minecraft.level.getWorldBorder().isWithinBounds(entity.blockPosition())) {
+                                InteractionResult result = minecraft.gameMode.interactAt(minecraft.player, entity, entityHitResult, InteractionHand.MAIN_HAND);
+                                if (!result.consumesAction()) {
+                                    result = minecraft.gameMode.interact(minecraft.player, entity, InteractionHand.MAIN_HAND);
+                                }
+                                if (result.consumesAction()) {
+                                    if (result.shouldSwing()) minecraft.player.swing(InteractionHand.MAIN_HAND);
+                                    placementWorked = true;
+                                }
+                            }
+                            break;
+                        case BLOCK:
+                            BlockHitResult blockHitResult = (BlockHitResult) minecraft.hitResult;
+                            int count = mainHandItemStack.getCount();
+                            InteractionResult result2 = minecraft.gameMode.useItemOn(minecraft.player, InteractionHand.MAIN_HAND, blockHitResult);
+                            if (result2.consumesAction()) {
+                                if (result2.shouldSwing()) {
+                                    minecraft.player.swing(InteractionHand.MAIN_HAND);
+                                    if (!mainHandItemStack.isEmpty() && (mainHandItemStack.getCount() != count || minecraft.gameMode.hasInfiniteItems())) {
+                                        minecraft.gameRenderer.itemInHandRenderer.itemUsed(InteractionHand.MAIN_HAND);
+                                    }
+                                }
+                                placementWorked = true;
+                            }
+                            break;
+                    }
+                }
+
+                // Step 2: If main hand placement failed, try off-hand placement
+                if (!placementWorked) {
+                    ItemStack offHandItemStack = minecraft.player.getItemInHand(InteractionHand.OFF_HAND);
+                    if (offHandItemStack.isItemEnabled(minecraft.level.enabledFeatures()) && minecraft.hitResult != null) {
                         switch (minecraft.hitResult.getType()) {
                             case ENTITY:
                                 EntityHitResult entityHitResult = (EntityHitResult) minecraft.hitResult;
                                 Entity entity = entityHitResult.getEntity();
                                 if (minecraft.level.getWorldBorder().isWithinBounds(entity.blockPosition())) {
-                                    InteractionResult interactionResult = minecraft.gameMode.interactAt(minecraft.player, entity, entityHitResult, InteractionHand.MAIN_HAND);
-                                    if (!interactionResult.consumesAction()) {
-                                        interactionResult = minecraft.gameMode.interact(minecraft.player, entity, InteractionHand.MAIN_HAND);
+                                    InteractionResult result = minecraft.gameMode.interactAt(minecraft.player, entity, entityHitResult, InteractionHand.OFF_HAND);
+                                    if (!result.consumesAction()) {
+                                        result = minecraft.gameMode.interact(minecraft.player, entity, InteractionHand.OFF_HAND);
                                     }
-
-                                    if (interactionResult.consumesAction()) {
-                                        if (interactionResult.shouldSwing()) {
-                                            minecraft.player.swing(InteractionHand.MAIN_HAND);
-                                        }
+                                    if (result.consumesAction()) {
+                                        if (result.shouldSwing()) minecraft.player.swing(InteractionHand.OFF_HAND);
                                         placementWorked = true;
                                     }
                                 }
                                 break;
-                                
                             case BLOCK:
                                 BlockHitResult blockHitResult = (BlockHitResult) minecraft.hitResult;
-                                int i = mainHandItemStack.getCount();
-                                InteractionResult interactionResult2 = minecraft.gameMode.useItemOn(minecraft.player, InteractionHand.MAIN_HAND, blockHitResult);
-                                if (interactionResult2.consumesAction()) {
-                                    if (interactionResult2.shouldSwing()) {
-                                        minecraft.player.swing(InteractionHand.MAIN_HAND);
-                                        if (!mainHandItemStack.isEmpty() && (mainHandItemStack.getCount() != i || minecraft.gameMode.hasInfiniteItems())) {
-                                            minecraft.gameRenderer.itemInHandRenderer.itemUsed(InteractionHand.MAIN_HAND);
+                                int count = offHandItemStack.getCount();
+                                InteractionResult result2 = minecraft.gameMode.useItemOn(minecraft.player, InteractionHand.OFF_HAND, blockHitResult);
+                                if (result2.consumesAction()) {
+                                    if (result2.shouldSwing()) {
+                                        minecraft.player.swing(InteractionHand.OFF_HAND);
+                                        if (!offHandItemStack.isEmpty() && (offHandItemStack.getCount() != count || minecraft.gameMode.hasInfiniteItems())) {
+                                            minecraft.gameRenderer.itemInHandRenderer.itemUsed(InteractionHand.OFF_HAND);
                                         }
                                     }
                                     placementWorked = true;
-                                } else if (interactionResult2 == InteractionResult.FAIL) {
-                                    // Explicit failure, but continue to item usage
                                 }
+                                break;
                         }
                     }
                 }
 
-                // Step 2: If placement didn't work, try off-hand item usage
-                boolean offHandWorked = false;
+                // Step 3: If no placement worked, try off-hand item, then main-hand item (with original logic for mod compatibility)
                 if (!placementWorked) {
+                    // First try off-hand item usage
                     ItemStack offHandItemStack = minecraft.player.getItemInHand(InteractionHand.OFF_HAND);
-                    if (!offHandItemStack.isEmpty() && offHandItemStack.isItemEnabled(minecraft.level.enabledFeatures())) {
-                        InteractionResult interactionResult3 = minecraft.gameMode.useItem(minecraft.player, InteractionHand.OFF_HAND);
-                        if (interactionResult3.consumesAction()) {
-                            if (interactionResult3.shouldSwing()) {
-                                minecraft.player.swing(InteractionHand.OFF_HAND);
-                            }
+                    boolean offHandItemWorked = false;
+                    
+                    if (!offHandItemStack.isEmpty()) {
+                        InteractionResult result = minecraft.gameMode.useItem(minecraft.player, InteractionHand.OFF_HAND);
+                        if (result.consumesAction()) {
+                            if (result.shouldSwing()) minecraft.player.swing(InteractionHand.OFF_HAND);
                             minecraft.gameRenderer.itemInHandRenderer.itemUsed(InteractionHand.OFF_HAND);
-                            offHandWorked = true;
+                            offHandItemWorked = true;
                         }
                     }
-                }
-
-                // Step 3: If both placement and off-hand failed, try main-hand item usage
-                if (!placementWorked && !offHandWorked) {
-                    if (!mainHandItemStack.isEmpty()) {
-                        InteractionResult interactionResult4 = minecraft.gameMode.useItem(minecraft.player, InteractionHand.MAIN_HAND);
-                        if (interactionResult4.consumesAction()) {
-                            if (interactionResult4.shouldSwing()) {
-                                minecraft.player.swing(InteractionHand.MAIN_HAND);
+                    
+                    // If off-hand item didn't work, try main-hand item
+                    if (!offHandItemWorked) {
+                        ItemStack mainHandItemStack = minecraft.player.getItemInHand(InteractionHand.MAIN_HAND);
+                        if (!mainHandItemStack.isEmpty()) {
+                            InteractionResult result = minecraft.gameMode.useItem(minecraft.player, InteractionHand.MAIN_HAND);
+                            if (result.consumesAction()) {
+                                if (result.shouldSwing()) minecraft.player.swing(InteractionHand.MAIN_HAND);
+                                minecraft.gameRenderer.itemInHandRenderer.itemUsed(InteractionHand.MAIN_HAND);
                             }
-                            minecraft.gameRenderer.itemInHandRenderer.itemUsed(InteractionHand.MAIN_HAND);
                         }
                     }
                 }
