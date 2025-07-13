@@ -146,9 +146,9 @@ public class OffHanderClient {
         }
     }
 
-    // Enhanced off-hand method that tries main hand first (for placement), then off-hand
+    // Enhanced off-hand method: placement → off-hand item → main-hand item (vanilla with swapped hands)
     private static void startUseItemWithFallback(Minecraft minecraft, InteractionHand primaryHand) {
-        LOGGER.info("use item with fallback - trying main hand first for placement");
+        LOGGER.info("use item with fallback - placement, off-hand, main-hand sequence");
         if (!minecraft.gameMode.isDestroying()) {
             ((MinecraftAccessor) minecraft).setRightClickDelay(4);
             if (!minecraft.player.isHandsBusy()) {
@@ -157,8 +157,8 @@ public class OffHanderClient {
                     return;
                 }
 
-                // First, try main hand for placement/interaction (vanilla priority)
-                boolean mainHandWorked = false;
+                // Step 1: Try main hand for placement/interaction only (like vanilla)
+                boolean placementWorked = false;
                 ItemStack mainHandItemStack = minecraft.player.getItemInHand(InteractionHand.MAIN_HAND);
                 
                 if (mainHandItemStack.isItemEnabled(minecraft.level.enabledFeatures())) {
@@ -177,7 +177,7 @@ public class OffHanderClient {
                                         if (interactionResult.shouldSwing()) {
                                             minecraft.player.swing(InteractionHand.MAIN_HAND);
                                         }
-                                        mainHandWorked = true;
+                                        placementWorked = true;
                                     }
                                 }
                                 break;
@@ -193,18 +193,41 @@ public class OffHanderClient {
                                             minecraft.gameRenderer.itemInHandRenderer.itemUsed(InteractionHand.MAIN_HAND);
                                         }
                                     }
-                                    mainHandWorked = true;
+                                    placementWorked = true;
                                 } else if (interactionResult2 == InteractionResult.FAIL) {
-                                    // Don't try fallback on explicit failure
-                                    return;
+                                    // Explicit failure, but continue to item usage
                                 }
                         }
                     }
                 }
 
-                // If main hand placement/interaction didn't work, try off-hand
-                if (!mainHandWorked) {
-                    startUseItem(minecraft, InteractionHand.OFF_HAND);
+                // Step 2: If placement didn't work, try off-hand item usage
+                boolean offHandWorked = false;
+                if (!placementWorked) {
+                    ItemStack offHandItemStack = minecraft.player.getItemInHand(InteractionHand.OFF_HAND);
+                    if (!offHandItemStack.isEmpty() && offHandItemStack.isItemEnabled(minecraft.level.enabledFeatures())) {
+                        InteractionResult interactionResult3 = minecraft.gameMode.useItem(minecraft.player, InteractionHand.OFF_HAND);
+                        if (interactionResult3.consumesAction()) {
+                            if (interactionResult3.shouldSwing()) {
+                                minecraft.player.swing(InteractionHand.OFF_HAND);
+                            }
+                            minecraft.gameRenderer.itemInHandRenderer.itemUsed(InteractionHand.OFF_HAND);
+                            offHandWorked = true;
+                        }
+                    }
+                }
+
+                // Step 3: If both placement and off-hand failed, try main-hand item usage
+                if (!placementWorked && !offHandWorked) {
+                    if (!mainHandItemStack.isEmpty()) {
+                        InteractionResult interactionResult4 = minecraft.gameMode.useItem(minecraft.player, InteractionHand.MAIN_HAND);
+                        if (interactionResult4.consumesAction()) {
+                            if (interactionResult4.shouldSwing()) {
+                                minecraft.player.swing(InteractionHand.MAIN_HAND);
+                            }
+                            minecraft.gameRenderer.itemInHandRenderer.itemUsed(InteractionHand.MAIN_HAND);
+                        }
+                    }
                 }
             }
         }
